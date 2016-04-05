@@ -9,10 +9,17 @@
 #include <arpa/inet.h>
 
 
+// Settings :
+
 #define SERVER "127.0.0.1" //IP to send data to
 #define PORT 12345   //The port on which to send data
-#define CHUNK_SIZE 1024 //UDP GELF CHUNK SIZE
+#define UDP_CHUNK_SIZE 1024 //UDP GELF CHUNK SIZE
+
+// Fixed
+
 #define GELF_HDR_SIZE 12  //FIXED GELF HEADER SIZE
+#define true 1
+#define false 0
 
 void die(char *s)
 {
@@ -29,24 +36,22 @@ int main(void)
      
     FILE * fp;
     char * line = NULL;
-    char buffer[CHUNK_SIZE - GELF_HDR_SIZE];
-    char udp_packet[CHUNK_SIZE];
+    char udp_packet[UDP_CHUNK_SIZE];
     char gelf_header[GELF_HDR_SIZE];
     size_t len = 0;
     ssize_t read;
     struct sockaddr_in si_other;
     int s, slen=sizeof(si_other);
-    int chunk_size;
+    int gelf_chunk_size = UDP_CHUNK_SIZE - GELF_HDR_SIZE;;
     uint8_t chunk_index = 0;
     uint8_t total_chunks = 1;
     int line_size;
     uint32_t gelf_id = 1;
- 
     double left_overs;
     
-    //final chunksize, removing HDR_SIZE
-    chunk_size = CHUNK_SIZE - GELF_HDR_SIZE;
-    
+   
+ 
+      
 	// Open stdin :
     fp = fopen("/dev/stdin", "r");
     if (fp == NULL)
@@ -63,68 +68,71 @@ int main(void)
     if (inet_aton(SERVER , &si_other.sin_addr) == 0) 
         die("inet_aton() failed");
     
+    printf("json2gelf : Reading from stdin and sending packets to %s port %i ...\n",SERVER,PORT);
     
     //construct basic gelf_header :
     gelf_header[0] = 0x1e;
     gelf_header[1] = 0x0f;
     
+    
+    
     // While we have data coming from stdin :
     while ((read = getline(&line, &len, fp)) != -1) {
+
+		//give it an id :
 		
-		//chunk it:
-		total_chunks = ceil((float) strlen(line) / chunk_size);
-		line_size = strlen(line);
-		printf("+ Loaded line of %i bytes\n", line_size );
 	    gelf_id++;
 
+		//chunk it :
+		chunk_index = 0;
+		        
+		line_size = strlen(line);
+		
+		total_chunks = ceil((float) line_size / gelf_chunk_size);
+		
+		
 		while(chunk_index +1 <= total_chunks) { 
 		  
-		  printf("++ CHUNK %i of %i\n", chunk_index + 1, total_chunks);
+		  //by default we get max chunk size
+		  left_overs = gelf_chunk_size;
 		  
-		  left_overs = chunk_size;
-		  
+		  //if we're at the last chunk
 		  if(chunk_index + 1 == total_chunks) {
 			
 			//remaining chars = strlen(line) % total_chunks
-			left_overs =  fmod((float) line_size, (float) chunk_size);
+			left_overs =  fmod((float) line_size, (float) gelf_chunk_size);
 
+			//if it's the only chunk, left_overs is line_size
 			if(total_chunks == 1)
 			   left_overs =  line_size;
 			
 		  };
 	
-		  printf("+++ Start at : %i\n", chunk_index * chunk_size);
-		  printf("+++ For : %i bytes \n", (int) left_overs);
-		  
 		  // build our gelf header (32bit) :
-		  
+	      // ( Endian conversion from local to network )	  
 		  uint32_t gelf_bw_id = htonl(gelf_id);
 		  
+		  // 32 bits will be enough, copy to our packet 2 times (64bits by gelf_specs)
           memcpy(gelf_header+2, &gelf_bw_id, 4);
           memcpy(gelf_header+6, &gelf_bw_id, 4);
 
-		  // Chunks :
+		  // Add chunk index and total chunk
 		  memcpy(gelf_header+10, &chunk_index ,1);
 		  memcpy(gelf_header+11, &total_chunks,1);
-		  
-		
-		  
-		  // Push the line part in the first buffer
-		  memcpy(buffer, &line[chunk_index * chunk_size] , left_overs);
 		 
 		  // Forge our UDP Packet :
 	      memcpy(udp_packet,gelf_header, GELF_HDR_SIZE);
-		  memcpy(udp_packet + GELF_HDR_SIZE, buffer, CHUNK_SIZE);
+	      
+          // Here we substr :
+		  memcpy(udp_packet + GELF_HDR_SIZE,  &line[chunk_index * gelf_chunk_size], left_overs);
 		  
 		  // And send it :
 		  if (sendto(s, udp_packet, left_overs + GELF_HDR_SIZE, 0 , (struct sockaddr *) &si_other, slen)==-1)
 			  die("sendto() failed");
-		
+		  
+		  // Increase our chunk index
 		  chunk_index++;
-		}
-	
-		printf("+++++ Sent %zu bytes to %s ! +++++++++\n\n", read,"locahost");
-		chunk_index = 0;        
+		}	    
     }
     
     fclose(fp);
