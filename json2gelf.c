@@ -7,6 +7,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <sys/time.h>
+#include <zlib.h>
+
 
 
 // Settings :
@@ -43,7 +46,6 @@ int main(void)
 
     uint8_t chunk_index = 0;
     uint8_t total_chunks = 1;
-    uint32_t gelf_id = 1;
 
     int gelf_chunk_size = UDP_CHUNK_SIZE - GELF_HDR_SIZE;;
     int line_size;
@@ -52,51 +54,80 @@ int main(void)
     char * line = NULL;
     char gelf_header[GELF_HDR_SIZE];
     char udp_packet[UDP_CHUNK_SIZE];
+	struct timeval tv;
+	z_stream defstream;
+	// Allocating uncompressed size for compressed
+	char compressed_line[128 * UDP_CHUNK_SIZE];
 
 
-   
- 
       
     // Open stdin :
     fp = fopen("/dev/stdin", "r");
     if (fp == NULL)
         die("fopen error");
     
-    if ( (s=socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)) == -1)
-        die("socket error");
-    
-    
     memset((char *) &si_other, 0, sizeof(si_other));
+
     si_other.sin_family = AF_INET;
     si_other.sin_port = htons(PORT);
+
     
     if (inet_aton(SERVER , &si_other.sin_addr) == 0) 
         die("inet_aton() failed");
-    
+
+	// open connection :
+	if ( (s=socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+	  die("socket error");       
+
     printf("json2gelf : Reading from stdin and sending packets to %s port %i ...\n",SERVER,PORT);
-    
-    //construct basic gelf_header :
-    gelf_header[0] = 0x1e;
-    gelf_header[1] = 0x0f;
-    
-    
     
     // While we have data coming from stdin :
     while ((read = getline(&line, &len, fp)) != -1) {
+	
+		// get microtime for id :
+		gettimeofday(&tv,NULL);
+		
+		//chunk it :
+		chunk_index = 0;
+				
+		line_size = strlen(line);
+		
+		strtok(line, "\n");
+		
+		// is this packet is too big ?
+	    if(line_size > (128 * UDP_CHUNK_SIZE))
+	      continue;
+	    
+	    // nop, compress it :
+	    
+		defstream.zalloc = Z_NULL;
+		defstream.zfree = Z_NULL;
+		defstream.opaque = Z_NULL;
 
-    //give it an id :
-    
-      gelf_id++;
+		defstream.avail_in = (uInt) strlen(line); // size of input, string - terminator
+		defstream.next_in = (Bytef *)line; // input char array
+		defstream.avail_out = (uInt)sizeof(compressed_line); // size of output
+		defstream.next_out = (Bytef *)compressed_line; // output char array
+		
+		// the actual compression work.
+		deflateInit(&defstream, Z_BEST_SPEED);
+		deflate(&defstream, Z_FINISH);
+		deflateEnd(&defstream);
 
-    //chunk it :
-    chunk_index = 0;
-            
-    line_size = strlen(line);
-    
-    total_chunks = ceil((float) line_size / gelf_chunk_size);
+		 //The size
+		line_size = (char*)defstream.next_out - compressed_line;
+		
+		printf("Compressed line : %i\n", line_size);
+		
+		total_chunks = ceil((float) line_size / gelf_chunk_size);
+
+
+        // This byte here should be is a 9c when using gzcompress from php but here it's not.
+        // logstash checks for this magic byte sequence to detect compression ( 78,9c ), 78 is good :
+        compressed_line[1] = 0x9c;
 
         while(chunk_index +1 <= total_chunks) {
-
+			
             //by default we get max chunk size
             left_overs = gelf_chunk_size;
 
@@ -108,13 +139,14 @@ int main(void)
                 //remaining chars = strlen(line) % total_chunks
                 left_overs =  fmod((float) line_size, (float) gelf_chunk_size);
 
-            // build our gelf header (32bit) :
-            // ( Endian conversion from local to network )
-            uint32_t gelf_bw_id = htonl(gelf_id);
-
-            // 32 bits will be enough, copy to our packet 2 times (64bits by gelf_specs)
-            memcpy(gelf_header+2, &gelf_bw_id, 4);
-            memcpy(gelf_header+6, &gelf_bw_id, 4);
+            // build our gelf header (12 bytes) :
+            
+            gelf_header[0] = 0x1e;
+            gelf_header[1] = 0x0f;
+            // id is tv_usec.tv_sec
+            memcpy(gelf_header+2, &tv.tv_usec, 4);
+            memcpy(gelf_header+6, &tv.tv_usec, 4);
+            
 
             // Add chunk index and total chunk
             memcpy(gelf_header+10, &chunk_index ,1);
@@ -124,19 +156,20 @@ int main(void)
             memcpy(udp_packet, gelf_header, GELF_HDR_SIZE);
 
               // Here we substr :
-            memcpy(udp_packet + GELF_HDR_SIZE, &line[chunk_index * gelf_chunk_size], left_overs);
+            memcpy(udp_packet + GELF_HDR_SIZE, &compressed_line[chunk_index * gelf_chunk_size], left_overs+1);
 
             // And send it :
-            if (sendto(s, udp_packet, (left_overs + GELF_HDR_SIZE), 0, (struct sockaddr *) &si_other, slen)==-1)
+            if (sendto(s, udp_packet, ((int) left_overs + GELF_HDR_SIZE), 0, (struct sockaddr *) &si_other, slen)==-1)
               die("sendto() failed");
-
-            // Increase our chunk index
+			
+		    // Increase our chunk index
             chunk_index++;
         }
     }
     
     fclose(fp);
-  
+    close(s);
+
     if (line)
         free(line);
     exit(EXIT_SUCCESS);

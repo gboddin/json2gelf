@@ -1,5 +1,5 @@
 TARGET = json2gelf
-LIBS = -lm
+LIBS = -lm -lz
 CC = gcc
 CFLAGS = -g -Wall
 
