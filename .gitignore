@@ -1,2 +1,3 @@
 json2gelf
 .idea
+*.o

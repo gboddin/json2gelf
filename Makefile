@@ -1,12 +1,15 @@
-TARGET = json2gelf
-LIBS = -lm -lz
-CC = gcc
-CFLAGS = -g -Wall
+CC=gcc
+CFLAGS=-lm -lz -Wall -I.
+DEPS = JSON_checker.h
+OBJ = JSON_checker.o json2gelf.o
 
-default: json2gelf
+%.o: %.c $(DEPS)
+	$(CC) -c -o $@ $< $(CFLAGS)
 
-json2gelf:
-	${CC} ${TARGET}.c ${CFLAGS} ${LIBS}  -o ${TARGET}
+json2gelf: $(OBJ)
+	gcc -o $@ $^ $(CFLAGS)
+
+.PHONY: clean
 
 clean:
-	rm -f json2gelf.o json2gelf
+	rm -f *.o json2gelf
