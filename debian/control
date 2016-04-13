@@ -1,0 +1,16 @@
+Source: json2gelf
+Section: Network 
+Priority: optional
+Maintainer: Gregory Boddin <gregory@siwhine.net>
+Build-Depends: debhelper (>=9), libz-dev 
+Standards-Version: 3.9.7
+Homepage: https://github.com/gboddin/json2gelf 
+Vcs-Git: https://github.com/gboddin/json2gelf.git
+Vcs-Browser: https://github.com/gboddin/json2gelf/tree/master 
+
+Package: json2gelf
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libz1
+Description: Gets JSON lines from a file/stdin and forward it as GELF packet
+ Forward line separated JSON to a UDP GELF server, includes json validation,
+ packet compression and chunking.

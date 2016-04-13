@@ -1,0 +1,5 @@
+json2gelf (0.1.1-1) unstable; urgency=medium
+
+  * Initial release 
+
+ -- Gregory Boddin <gregory@siwhine.net>  Wed, 13 Apr 2016 10:42:15 +0200
