@@ -1,3 +1,9 @@
+json2gelf (0.1.2-1) unstable; urgency=medium
+
+  * Bugfix on varnish2json script : https://github.com/gboddin/json2gelf/pull/1
+
+ -- Gregory Boddin <gregory@siwhine.net>  Sun, 23 Oct 2016 17:55:15 +0200
+
 json2gelf (0.1.1-1) unstable; urgency=medium
 
   * Initial release 
