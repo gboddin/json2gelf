@@ -94,7 +94,7 @@ static struct argp argp = { options, parse_opt, NULL, doc };
 
 void die(char *s)
 {
-    printf(s);
+    printf("%s",s);
     printf("\n");
     exit(EXIT_FAILURE);
 }
